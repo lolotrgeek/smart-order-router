@@ -20,7 +20,6 @@ import {
   CHAIN_IDS_LIST,
   EIP1559GasPriceProvider,
   EthEstimateGasSimulator,
-  FallbackTenderlySimulator,
   GasPrice,
   ID_TO_CHAIN_ID,
   ID_TO_NETWORK_NAME,
@@ -38,7 +37,6 @@ import {
   setGlobalLogger,
   setGlobalMetric,
   SimulationStatus,
-  TenderlySimulator,
   TokenPropertiesProvider,
   TokenProvider,
   UniswapMulticallProvider,
@@ -299,18 +297,6 @@ export abstract class BaseCommand extends Command {
       const v2PoolProvider = new V2PoolProvider(chainId, multicall2Provider, tokenPropertiesProvider);
 
       const portionProvider = new PortionProvider();
-      const tenderlySimulator = new TenderlySimulator(
-        chainId,
-        'https://api.tenderly.co',
-        process.env.TENDERLY_USER!,
-        process.env.TENDERLY_PROJECT!,
-        process.env.TENDERLY_ACCESS_KEY!,
-        v2PoolProvider,
-        v3PoolProvider,
-        provider,
-        portionProvider,
-        { [ChainId.ARBITRUM_ONE]: 1 }
-      );
 
       const ethEstimateGasSimulator = new EthEstimateGasSimulator(
         chainId,
@@ -320,13 +306,6 @@ export abstract class BaseCommand extends Command {
         portionProvider
       );
 
-      const simulator = new FallbackTenderlySimulator(
-        chainId,
-        provider,
-        portionProvider,
-        tenderlySimulator,
-        ethEstimateGasSimulator
-      );
 
       const router = new AlphaRouter({
         provider,
@@ -386,7 +365,7 @@ export abstract class BaseCommand extends Command {
         Math.min(estimatedGasUsedUSD.currency.decimals, 6)
       )}`
     );
-    if(estimatedGasUsedGasToken) {
+    if (estimatedGasUsedGasToken) {
       this.logger.info(
         `Gas Used gas token: ${estimatedGasUsedGasToken.toFixed(
           Math.min(estimatedGasUsedGasToken.currency.decimals, 6)
