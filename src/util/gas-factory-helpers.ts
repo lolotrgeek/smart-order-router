@@ -3,7 +3,7 @@ import { Protocol } from '@uniswap/router-sdk';
 import { ChainId, Token, TradeType } from '@uniswap/sdk-core';
 import { Pair } from '@uniswap/v2-sdk/dist/entities';
 import { FeeAmount, Pool } from '@uniswap/v3-sdk';
-import brotli from 'brotli';
+import brotliPromise from 'brotli-wasm';
 import JSBI from 'jsbi';
 import _ from 'lodash';
 
@@ -185,14 +185,13 @@ export function getGasCostInNativeCurrency(
   return costNativeCurrency;
 }
 
-export function getArbitrumBytes(data: string): BigNumber {
+export async function getArbitrumBytes(data: string): Promise<BigNumber> {
+  const brotli = await brotliPromise; // Import is async in browsers due to wasm requirements!
   if (data == '') return BigNumber.from(0);
   const compressed = brotli.compress(
     Buffer.from(data.replace('0x', ''), 'hex'),
     {
-      mode: 0,
       quality: 1,
-      lgwin: 22,
     }
   );
   // TODO: This is a rough estimate of the compressed size
@@ -203,28 +202,28 @@ export function getArbitrumBytes(data: string): BigNumber {
   return BigNumber.from(compressed.length).mul(120).div(100);
 }
 
-export function calculateArbitrumToL1FeeFromCalldata(
+export async function calculateArbitrumToL1FeeFromCalldata(
   calldata: string,
   gasData: ArbitrumGasData,
   chainId: ChainId
-): [BigNumber, BigNumber, BigNumber] {
+): Promise<[BigNumber, BigNumber, BigNumber]> {
   const { perL2TxFee, perL1CalldataFee, perArbGasTotal } = gasData;
   // calculates gas amounts based on bytes of calldata, use 0 as overhead.
-  const l1GasUsed = getL2ToL1GasUsed(calldata, BigNumber.from(0), chainId);
+  const l1GasUsed = await getL2ToL1GasUsed(calldata, BigNumber.from(0), chainId);
   // multiply by the fee per calldata and add the flat l2 fee
   const l1Fee = l1GasUsed.mul(perL1CalldataFee).add(perL2TxFee);
   const gasUsedL1OnL2 = l1Fee.div(perArbGasTotal);
   return [l1GasUsed, l1Fee, gasUsedL1OnL2];
 }
 
-export function calculateOptimismToL1FeeFromCalldata(
+export async function calculateOptimismToL1FeeFromCalldata(
   calldata: string,
   gasData: OptimismGasData,
   chainId: ChainId
-): [BigNumber, BigNumber] {
+): Promise<[BigNumber, BigNumber]> {
   const { l1BaseFee, scalar, decimals, overhead } = gasData;
 
-  const l1GasUsed = getL2ToL1GasUsed(calldata, overhead, chainId);
+  const l1GasUsed = await getL2ToL1GasUsed(calldata, overhead, chainId);
   // l1BaseFee is L1 Gas Price on etherscan
   const l1Fee = l1GasUsed.mul(l1BaseFee);
   const unscaled = l1Fee.mul(scalar);
@@ -234,16 +233,16 @@ export function calculateOptimismToL1FeeFromCalldata(
   return [l1GasUsed, scaled];
 }
 
-export function getL2ToL1GasUsed(
+export async function getL2ToL1GasUsed(
   data: string,
   overhead: BigNumber,
   chainId: ChainId
-): BigNumber {
+): Promise<BigNumber> {
   switch (chainId) {
     case ChainId.ARBITRUM_ONE:
     case ChainId.ARBITRUM_GOERLI: {
       // calculates bytes of compressed calldata
-      const l1ByteUsed = getArbitrumBytes(data);
+      const l1ByteUsed = await getArbitrumBytes(data);
       return l1ByteUsed.mul(16);
     }
     case ChainId.OPTIMISM:
@@ -300,11 +299,12 @@ export async function calculateGasUsed(
       ChainId.BASE_GOERLI,
     ].includes(chainId)
   ) {
-    l2toL1FeeInWei = calculateOptimismToL1FeeFromCalldata(
+    const calcl2toL1FeeInWei = await calculateOptimismToL1FeeFromCalldata(
       route.methodParameters!.calldata,
       l2GasData as OptimismGasData,
       chainId
-    )[1];
+    );
+    l2toL1FeeInWei = calcl2toL1FeeInWei[1];
   }
 
   // add l2 to l1 fee and wrap fee to native currency
@@ -508,10 +508,10 @@ export function initSwapRouteFromExisting(
 
   const quoteGasAndPortionAdjusted = swapRoute.portionAmount
     ? portionProvider.getQuoteGasAndPortionAdjusted(
-        swapRoute.trade.tradeType,
-        quoteGasAdjusted,
-        swapRoute.portionAmount
-      )
+      swapRoute.trade.tradeType,
+      quoteGasAdjusted,
+      swapRoute.portionAmount
+    )
     : undefined;
   const routesWithValidQuotePortionAdjusted =
     portionProvider.getRouteWithQuotePortionAdjusted(
@@ -534,10 +534,10 @@ export function initSwapRouteFromExisting(
     blockNumber: BigNumber.from(swapRoute.blockNumber),
     methodParameters: swapRoute.methodParameters
       ? ({
-          calldata: swapRoute.methodParameters.calldata,
-          value: swapRoute.methodParameters.value,
-          to: swapRoute.methodParameters.to,
-        } as MethodParameters)
+        calldata: swapRoute.methodParameters.calldata,
+        value: swapRoute.methodParameters.value,
+        to: swapRoute.methodParameters.to,
+      } as MethodParameters)
       : undefined,
     simulationStatus: swapRoute.simulationStatus,
     portionAmount: swapRoute.portionAmount,
